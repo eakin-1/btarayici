@@ -102,9 +102,9 @@ def sinyalleri_hesapla(df: pd.DataFrame, endeks_getiri: pd.Series) -> pd.DataFra
 def durum_makinesi(d: pd.DataFrame) -> dict:
     """f_durum() karsiligi — son bardaki pozisyon durumunu dondurur."""
     poz = False
+    durum = 0                    # 0 bekle, 1 AL, 2 SAT, 3 tut
     giris_fiyat = np.nan
     giris_index = 0
-    durum = 0                    # 0 bekle, 1 AL, 2 SAT, 3 tut
     giris_tarih = None
 
     girisler = d["giris"].to_numpy()
@@ -114,7 +114,7 @@ def durum_makinesi(d: pd.DataFrame) -> dict:
     for i in range(len(d)):
         if poz and cikislar[i]:
             poz, durum = False, 2
-            giris_fiyat, giris_tarih = np.nan, None
+            # giris bilgisini SILMIYORUZ — SAT satirinda raporlanacak
         elif (not poz) and girisler[i]:
             poz, durum = True, 1
             giris_fiyat, giris_index = kapanislar[i], i
@@ -123,13 +123,15 @@ def durum_makinesi(d: pd.DataFrame) -> dict:
             durum = 3 if poz else 0
 
     son = kapanislar[-1]
+    # AL/TUT'ta acik pozisyon, SAT'ta yeni kapanan islem raporlanir
+    raporla = durum in (1, 2, 3) and not np.isnan(giris_fiyat)
     return {
         "durum": {0: "BEKLE", 1: "AL", 2: "SAT", 3: "TUT"}[durum],
-        "bar": (len(d) - 1 - giris_index) if poz else 0,
-        "giris_fiyat": round(float(giris_fiyat), 2) if poz else None,
-        "giris_tarih": giris_tarih.date().isoformat() if (poz and giris_tarih is not None) else None,
+        "bar": (len(d) - 1 - giris_index) if raporla else 0,
+        "giris_fiyat": round(float(giris_fiyat), 2) if raporla else None,
+        "giris_tarih": giris_tarih.date().isoformat() if (raporla and giris_tarih is not None) else None,
         "fiyat": round(float(son), 2),
-        "kz_yuzde": round(float((son - giris_fiyat) / giris_fiyat * 100), 2) if poz else None,
+        "kz_yuzde": round(float((son - giris_fiyat) / giris_fiyat * 100), 2) if raporla else None,
     }
 
 
