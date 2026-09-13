@@ -1,0 +1,46 @@
+name: BIST taramasi
+
+on:
+  schedule:
+    # Hafta ici 15:10 UTC = 18:10 TR (BIST kapanisindan sonra)
+    - cron: "10 15 * * 1-5"
+  workflow_dispatch:        # elle de calistirabilmek icin
+
+permissions:
+  contents: write
+
+jobs:
+  tara:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Bagimliliklar
+        run: pip install -r requirements.txt
+
+      - name: Taramayi calistir
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python tarayici.py
+
+      - name: Sonuclari depoya yaz
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add sonuclar.csv ozet.md
+          git commit -m "tarama $(date +%F)" || echo "degisiklik yok"
+          git push
+
+      - name: Sonuclari indirilebilir yap
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarama-sonuclari
+          path: |
+            sonuclar.csv
+            ozet.md
