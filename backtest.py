@@ -1,9 +1,12 @@
 """
-BIST T / P / N tarayicisi — geriye donuk olcum (backtest).
+BIST T / P / N tarayicisi — geriye donuk olcum (backtest), v2.
 
-Ayni kurallari gecmise uygular, her islemi kaydeder ve sistemin gercekten
-ise yarayip yaramadigini olcer. Farkli ayarlari (sadece T, kural 2 kapali...)
-yan yana karsilastirir.
+v2'de eklenenler:
+  - MEDYAN getiri (birkac buyuk kazananin ortalamayi sismesini gormek icin)
+  - En iyi 10 islem cikarilinca ne kaliyor (dayaniklilik testi)
+  - Yil yil ayristirma (2023 rallisi sonucu tek basina mi tasiyor?)
+  - Gunluk/yillik getiri — farkli tutma sureli senaryolari adil karsilastirmak icin
+  - Bedelsiz/rucu kaynakli sahte fiyat hareketlerini ayiklayan filtre
 
 Gercekci varsayimlar:
   - Sinyal gun sonunda olusur, islem ERTESI GUN ACILISTA yapilir.
@@ -27,9 +30,15 @@ from tarayici import CFG, sinyalleri_hesapla, sembolleri_oku, veri_indir
 DIZIN = os.path.dirname(os.path.abspath(__file__))
 
 # ─────────────────────────── Olcum ayarlari ───────────────────────────
-KOMISYON = 0.0004      # tek yon islem maliyeti (%0.04). Kendi oranini yaz.
-GUN = 800              # kac gunluk gecmis uzerinde olculecek
-ERTESI_ACILIS = True   # True = sinyalin ertesi gunu acilistan islem (gercekci)
+KOMISYON = 0.0004       # tek yon islem maliyeti (%0.04). Kendi oranini yaz.
+GUN = 800               # kac gunluk gecmis uzerinde olculecek
+ERTESI_ACILIS = True    # True = sinyalin ertesi gunu acilistan islem (gercekci)
+
+# Bedelsiz/sermaye artirimi filtresi: tek barda bundan sert hareket varsa
+# veri duzeltmesi eksik demektir, o islem olcume alinmaz.
+SERT_DUSUS = -25.0      # tek gunde % kac dususu supheli sayalim
+SERT_YUKSELIS = 45.0    # tek gunde % kac yukselisi supheli sayalim
+ISLEM_GUNU = 252        # yillandirma icin
 
 
 def islemleri_cikar(d: pd.DataFrame, sembol: str) -> list[dict]:
@@ -40,10 +49,11 @@ def islemleri_cikar(d: pd.DataFrame, sembol: str) -> list[dict]:
     acilis = d["Open"].to_numpy() if "Open" in d else kapanis
 
     # Sinyal i. barda olustu -> islem i+1. barin acilisinda
-    if ERTESI_ACILIS:
-        fiyat = np.append(acilis[1:], np.nan)
-    else:
-        fiyat = kapanis
+    fiyat = np.append(acilis[1:], np.nan) if ERTESI_ACILIS else kapanis
+
+    # Supheli bar tespiti (bedelsiz, rucu, veri hatasi)
+    gunluk = np.append(np.nan, np.diff(kapanis) / kapanis[:-1] * 100)
+    supheli = (gunluk < SERT_DUSUS) | (gunluk > SERT_YUKSELIS)
 
     islemler: list[dict] = []
     poz = False
@@ -59,11 +69,13 @@ def islemleri_cikar(d: pd.DataFrame, sembol: str) -> list[dict]:
                     "sembol": sembol,
                     "giris_tarih": d.index[g_index + 1].date().isoformat(),
                     "cikis_tarih": d.index[i + 1].date().isoformat(),
+                    "yil": d.index[i + 1].year,
                     "giris_fiyat": round(float(g_fiyat), 2),
                     "cikis_fiyat": round(float(c_fiyat), 2),
                     "gun": i - g_index,
                     "brut_yuzde": round(float(brut), 2),
                     "net_yuzde": round(float(net), 2),
+                    "supheli": bool(supheli[g_index + 1:i + 2].any()),
                 })
             poz = False
         elif (not poz) and girisler[i]:
@@ -72,16 +84,31 @@ def islemleri_cikar(d: pd.DataFrame, sembol: str) -> list[dict]:
     return islemler
 
 
+def _gunluk_getiri(net: pd.Series, gunler: pd.Series) -> float:
+    """Sermaye surekli yatirimdaymis gibi, islem gunu basina bilesik getiri."""
+    toplam_gun = max(int(gunler.sum()), 1)
+    carpan = float(np.prod(1 + net / 100))
+    if carpan <= 0:
+        return float("nan")
+    return (carpan ** (1 / toplam_gun) - 1) * 100
+
+
 def istatistik(islemler: pd.DataFrame) -> dict:
     if islemler.empty:
         return {}
-    net = islemler["net_yuzde"]
-    kar = net[net > 0]
-    zarar = net[net <= 0]
-    # Bilesik getiri: her islemde sermayenin tamami kullanilmis gibi
-    bilesik = (np.prod(1 + net / 100) - 1) * 100
+    temiz = islemler[~islemler["supheli"]]
+    if temiz.empty:
+        return {}
+    net, gunler = temiz["net_yuzde"], temiz["gun"]
+    kar, zarar = net[net > 0], net[net <= 0]
+
+    # Dayaniklilik: en iyi 10 islem cikarilinca
+    kalan = temiz.drop(temiz.nlargest(10, "net_yuzde").index)
+    g = _gunluk_getiri(net, gunler)
+
     return {
         "islem_sayisi": len(net),
+        "elenen": int(islemler["supheli"].sum()),
         "isabet_yuzde": round(len(kar) / len(net) * 100, 1),
         "ort_net_yuzde": round(net.mean(), 2),
         "medyan_net_yuzde": round(net.median(), 2),
@@ -89,10 +116,11 @@ def istatistik(islemler: pd.DataFrame) -> dict:
         "ort_zarar": round(zarar.mean(), 2) if len(zarar) else 0.0,
         "kar_zarar_orani": round(abs(kar.mean() / zarar.mean()), 2) if len(zarar) and len(kar) else None,
         "en_kotu": round(net.min(), 2),
-        "en_iyi": round(net.max(), 2),
-        "ort_gun": round(islemler["gun"].mean(), 1),
-        "toplam_bilesik_yuzde": round(bilesik, 1),
-        "beklenen_deger": round(net.mean(), 2),
+        "ort_gun": round(gunler.mean(), 1),
+        "gunluk_yuzde": round(g, 3),
+        "yillik_yuzde": round(((1 + g / 100) ** ISLEM_GUNU - 1) * 100, 1),
+        "top10_haric_ort": round(kalan["net_yuzde"].mean(), 2) if len(kalan) else None,
+        "top10_haric_gunluk": round(_gunluk_getiri(kalan["net_yuzde"], kalan["gun"]), 3) if len(kalan) else None,
     }
 
 
@@ -114,11 +142,18 @@ def senaryo_calistir(veriler: dict, endeks_getiri: pd.Series, ad: str, ayarlar: 
     return ad, pd.DataFrame(hepsi)
 
 
-def endeks_getirisi(endeks: pd.DataFrame, ilk_tarih, son_tarih) -> float:
-    kesit = endeks.loc[str(ilk_tarih):str(son_tarih), "Close"]
-    if len(kesit) < 2:
-        return float("nan")
-    return round(float((kesit.iloc[-1] / kesit.iloc[0] - 1) * 100), 1)
+def endeks_yillik(endeks: pd.DataFrame) -> pd.DataFrame:
+    """XU100'un yil yil getirisi ve gunluk getirisi."""
+    k = endeks["Close"]
+    satir = []
+    for yil, kesit in k.groupby(k.index.year):
+        if len(kesit) < 2:
+            continue
+        getiri = (kesit.iloc[-1] / kesit.iloc[0] - 1) * 100
+        gunluk = ((kesit.iloc[-1] / kesit.iloc[0]) ** (1 / len(kesit)) - 1) * 100
+        satir.append({"yil": int(yil), "xu100_yuzde": round(float(getiri), 1),
+                      "xu100_gunluk": round(float(gunluk), 3)})
+    return pd.DataFrame(satir)
 
 
 def main() -> None:
@@ -147,55 +182,85 @@ def main() -> None:
         sonuclar[ad] = (istatistik(islemler), islemler)
         ist = sonuclar[ad][0]
         print(f"{ad}: {ist.get('islem_sayisi', 0)} islem, "
-              f"isabet %{ist.get('isabet_yuzde', 0)}, "
-              f"islem basi net %{ist.get('ort_net_yuzde', 0)}")
+              f"gunluk %{ist.get('gunluk_yuzde', 0)}, yillik %{ist.get('yillik_yuzde', 0)}")
 
-    # Karsilastirma icin al-tut (XU100) getirisi
-    ana = sonuclar[senaryolar[0][0]][1]
-    if not ana.empty:
-        ilk = min(ana["giris_tarih"])
-        son = max(ana["cikis_tarih"])
-        xu = endeks_getirisi(endeks, ilk, son)
+    ana_ist, ana_islem = sonuclar[senaryolar[0][0]]
+    ana_temiz = ana_islem[~ana_islem["supheli"]] if not ana_islem.empty else ana_islem
+
+    # Donem ve XU100 karsilastirmasi
+    if not ana_temiz.empty:
+        ilk, son = min(ana_temiz["giris_tarih"]), max(ana_temiz["cikis_tarih"])
+        kesit = endeks.loc[str(ilk):str(son), "Close"]
+        xu_toplam = round(float((kesit.iloc[-1] / kesit.iloc[0] - 1) * 100), 1)
+        xu_gunluk = round(float(((kesit.iloc[-1] / kesit.iloc[0]) ** (1 / len(kesit)) - 1) * 100), 3)
+        xu_yillik = round(((1 + xu_gunluk / 100) ** ISLEM_GUNU - 1) * 100, 1)
     else:
         ilk = son = "—"
-        xu = float("nan")
+        xu_toplam = xu_gunluk = xu_yillik = float("nan")
 
     # ── Rapor ──
-    sat = ["# Backtest sonuclari", "",
-           f"Olcum tarihi: {dt.date.today().isoformat()}  ",
-           f"Donem: {ilk} — {son}  ",
-           f"Sembol sayisi: {len(veriler)}  ",
-           f"Islem maliyeti: tek yon %{KOMISYON * 100:.2f} (gidis-donus %{KOMISYON * 200:.2f})  ",
-           f"Uygulama: {'sinyalin ertesi gunu acilistan' if ERTESI_ACILIS else 'ayni gun kapanistan'}  ",
-           f"**Karsilastirma — ayni donemde XU100: %{xu}**", "",
-           "## Senaryolar", "",
-           "| Senaryo | Islem | Isabet % | Islem basi net % | Ort. kar % | Ort. zarar % | K/Z orani | Ort. gun | En kotu % |",
-           "|---|---|---|---|---|---|---|---|---|"]
+    s = ["# Backtest sonuclari (v2)", "",
+         f"Olcum tarihi: {dt.date.today().isoformat()}  ",
+         f"Donem: {ilk} — {son}  |  Sembol: {len(veriler)}  ",
+         f"Maliyet: gidis-donus %{KOMISYON * 200:.2f}  |  Uygulama: ertesi gun acilis  ",
+         f"Supheli (bedelsiz/veri hatasi) islemler olcum disi birakildi.", "",
+         f"**XU100 ayni donemde: toplam %{xu_toplam} — gunluk %{xu_gunluk} — yillik %{xu_yillik}**", "",
+         "## Senaryolar", "",
+         "Gunluk ve yillik sutunlari, farkli tutma sureli senaryolari adil karsilastirmak icindir.",
+         "Sermayenin surekli yatirimda oldugu varsayilir (gercekte sinyal beklerken para bosta kalir).", "",
+         "| Senaryo | Islem | Isabet % | Ort. net % | **Medyan %** | Ort. gun | **Gunluk %** | **Yillik %** | Top10 haric gunluk % | En kotu % |",
+         "|---|---|---|---|---|---|---|---|---|---|"]
 
     for ad, (ist, _) in sonuclar.items():
         if not ist:
-            sat.append(f"| {ad} | 0 | — | — | — | — | — | — | — |")
+            s.append(f"| {ad} | 0 | — | — | — | — | — | — | — | — |")
             continue
-        sat.append(f"| {ad} | {ist['islem_sayisi']} | {ist['isabet_yuzde']} | {ist['ort_net_yuzde']} | "
-                   f"{ist['ort_kar']} | {ist['ort_zarar']} | {ist['kar_zarar_orani']} | "
-                   f"{ist['ort_gun']} | {ist['en_kotu']} |")
+        s.append(f"| {ad} | {ist['islem_sayisi']} | {ist['isabet_yuzde']} | {ist['ort_net_yuzde']} | "
+                 f"{ist['medyan_net_yuzde']} | {ist['ort_gun']} | {ist['gunluk_yuzde']} | "
+                 f"{ist['yillik_yuzde']} | {ist['top10_haric_gunluk']} | {ist['en_kotu']} |")
 
-    sat += ["", "## Nasil okunur", "",
-            "- **Islem basi net %**: komisyon dusulmus ortalama sonuc. Sifirin altindaysa sistem para kaybettiriyor.",
-            "- **Isabet %** tek basina yaniltir. Dusuk isabet + yuksek K/Z orani da kazandirir.",
-            "- **K/Z orani**: ortalama karin ortalama zarara bolumu. 1'in altindaysa isabet oraninin yuksek olmasi sart.",
-            "- **En kotu %**: tek bir islemde gorulen en buyuk kayip. Zarar kes olmadigi icin bu deger onemli.",
-            "- XU100 satiri referans: sistem bundan iyi degilse ugrasmaya degmiyor demektir.", ""]
+    s += ["", "## Yil yil — mevcut ayarlar vs XU100", ""]
+    if not ana_temiz.empty:
+        yillik = []
+        xu_y = endeks_yillik(endeks).set_index("yil")
+        for yil, grup in ana_temiz.groupby("yil"):
+            g = _gunluk_getiri(grup["net_yuzde"], grup["gun"])
+            yillik.append({
+                "yil": int(yil),
+                "islem": len(grup),
+                "ort_net_%": round(grup["net_yuzde"].mean(), 2),
+                "medyan_%": round(grup["net_yuzde"].median(), 2),
+                "isabet_%": round((grup["net_yuzde"] > 0).mean() * 100, 1),
+                "sistem_gunluk_%": round(g, 3),
+                "xu100_gunluk_%": xu_y["xu100_gunluk"].get(int(yil), float("nan")),
+            })
+        yil_tablo = pd.DataFrame(yillik)
+        s += [yil_tablo.to_markdown(index=False), "",
+              "Son iki sutun ayni birimde: sistemin gunluk getirisi XU100'un altindaysa",
+              "o yil endeksi almak daha iyiydi demektir.", ""]
 
-    ana_ist, ana_islem = sonuclar[senaryolar[0][0]]
-    if not ana_islem.empty:
-        en_iyi = ana_islem.nlargest(10, "net_yuzde")[["sembol", "giris_tarih", "cikis_tarih", "gun", "net_yuzde"]]
-        en_kotu = ana_islem.nsmallest(10, "net_yuzde")[["sembol", "giris_tarih", "cikis_tarih", "gun", "net_yuzde"]]
-        sat += ["## Mevcut ayarlarda en iyi 10 islem", "", en_iyi.to_markdown(index=False), "",
-                "## En kotu 10 islem", "", en_kotu.to_markdown(index=False), ""]
+    s += ["## Nasil okunur", "",
+          "- **Medyan %**: islemlerin tam ortasindaki sonuc. Ortalamadan cok dusukse,",
+          "  sonucu birkac buyuk kazanan tasiyor ve tekrarlanmasi sanstan cok sey bekler.",
+          "- **Top10 haric gunluk %**: en iyi 10 islem silinince ne kaliyor. Buyuk dususe ugruyorsa sistem kirilgan.",
+          "- **Gunluk/yillik %**: sermaye hep yatirimda varsayimiyla. Gercek getiri bunun altinda kalir.",
+          "- TL mevduat/para piyasasi getirisini de rakip olarak dusun: sistem onu da gecmeli.", ""]
+
+    if not ana_temiz.empty:
+        en_iyi = ana_temiz.nlargest(10, "net_yuzde")[["sembol", "giris_tarih", "cikis_tarih", "gun", "net_yuzde"]]
+        en_kotu = ana_temiz.nsmallest(10, "net_yuzde")[["sembol", "giris_tarih", "cikis_tarih", "gun", "net_yuzde"]]
+        s += ["## En iyi 10 islem", "", en_iyi.to_markdown(index=False), "",
+              "## En kotu 10 islem", "", en_kotu.to_markdown(index=False), ""]
+        elenen = ana_islem[ana_islem["supheli"]]
+        if not elenen.empty:
+            s += [f"## Olcum disi birakilan {len(elenen)} islem (supheli fiyat hareketi)", "",
+                  elenen.nsmallest(10, "net_yuzde")[["sembol", "giris_tarih", "cikis_tarih", "net_yuzde"]]
+                  .to_markdown(index=False), "",
+                  "Bu islemlerdeki sert hareket bedelsiz/rucu kaynakli olabilir; veri duzeltmesi eksikse",
+                  "gercek kayip/kazanc bu degil. Suphelenirsen ilgili hisseyi TradingView'de kontrol et.", ""]
         ana_islem.to_csv(os.path.join(DIZIN, "backtest_islemler.csv"), index=False)
 
-    rapor = "\n".join(sat)
+    rapor = "\n".join(s)
     with open(os.path.join(DIZIN, "backtest_ozet.md"), "w", encoding="utf-8") as f:
         f.write(rapor)
     print("\n" + rapor)
