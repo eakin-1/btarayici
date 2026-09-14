@@ -1,0 +1,6 @@
+# Buraya taranacak sembolleri satir satir yaz.
+# Mevcut semboller.txt dosyanin icerigini buraya kopyalayabilirsin.
+# Ornek:
+# THYAO
+# ASELS
+# FROTO
