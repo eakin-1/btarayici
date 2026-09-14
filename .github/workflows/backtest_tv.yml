@@ -1,0 +1,39 @@
+name: backtest_tv
+
+on:
+  # Sadece elle tetiklenir — Actions sekmesinde "Run workflow" ile.
+  # Tum sembolleri 800 gunluk gecmisle taradigi icin gunluk zamanlayiciya
+  # (schedule) baglamiyoruz; istersen asagidaki yorumu acip ekleyebilirsin.
+  workflow_dispatch: {}
+  # schedule:
+  #   - cron: "0 6 * * 1"   # her Pazartesi 06:00 UTC (TR saatiyle 09:00)
+
+jobs:
+  backtest_tv:
+    name: Yeni TradingView motoru icin backtest calistir
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repoyu al
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Kutuphaneleri kur
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance tabulate
+
+      - name: Backtest'i calistir
+        run: python backtest_tv.py
+
+      - name: Backtest sonuclarini sakla
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-tv-sonuclari
+          path: |
+            backtest_tv_islemler.csv
+            backtest_tv_ozet.md
+          if-no-files-found: warn
