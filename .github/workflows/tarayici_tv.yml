@@ -1,0 +1,98 @@
+name: BIST Tarayici - TradingView Yeni
+
+on:
+  workflow_dispatch:
+    inputs:
+      p_edge_only:
+        description: "P sadece yeni olustugunda sinyal versin"
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      trend_on:
+        description: "EMA trend filtresi"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      ema_len:
+        description: "Trend EMA uzunlugu"
+        required: true
+        default: "200"
+        type: string
+      adx_filtre_on:
+        description: "ADX filtresi"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      adx_len:
+        description: "ADX/DI uzunlugu"
+        required: true
+        default: "14"
+        type: string
+      adx_min:
+        description: "Minimum ADX"
+        required: true
+        default: "20"
+        type: string
+      cooldown_on:
+        description: "SAT sonrasi cooldown"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      cooldown_bars:
+        description: "Cooldown bar sayisi"
+        required: true
+        default: "3"
+        type: string
+  schedule:
+    # 15:45 UTC = 18:45 Turkiye saati
+    - cron: "45 15 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  tara_tv:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repoyu al
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: requirements_tv.txt
+
+      - name: Kutuphaneleri kur
+        run: pip install -r requirements_tv.txt
+
+      - name: Yeni TradingView tarayicisini calistir
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          P_EDGE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.p_edge_only || 'true' }}
+          TREND_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.trend_on || 'false' }}
+          EMA_LEN: ${{ github.event_name == 'workflow_dispatch' && inputs.ema_len || '200' }}
+          ADX_FILTRE_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.adx_filtre_on || 'false' }}
+          ADX_LEN: ${{ github.event_name == 'workflow_dispatch' && inputs.adx_len || '14' }}
+          ADX_MIN: ${{ github.event_name == 'workflow_dispatch' && inputs.adx_min || '20' }}
+          COOLDOWN_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.cooldown_on || 'false' }}
+          COOLDOWN_BARS: ${{ github.event_name == 'workflow_dispatch' && inputs.cooldown_bars || '3' }}
+        run: python tarayici_tv.py
+
+      - name: Yeni tarama sonuclarini sakla
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bist-tarama-tradingview-yeni
+          path: |
+            sonuclar_tv.csv
+            ozet_tv.md
+          if-no-files-found: warn
+          retention-days: 30
