@@ -210,6 +210,8 @@ def main() -> None:
         ("8. Kural 2 kapali (endeks sarti yok)", {"zayif_len": 99}),
         ("9. Sadece N ile cikis", {"cikis_modu": "Sadece N"}),
         ("10. Daha yuksek hacim esigi (1.8)", {"rvol_min": 1.8}),
+        ("11. ADX ACIK + Sadece N ile cikis",
+         {"adx_filtre_on": True, "cikis_modu": "Sadece N"}),
     ]
 
     sonuclar = {}
