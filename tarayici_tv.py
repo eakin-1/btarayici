@@ -4,7 +4,6 @@ BIST T / P / N tarayicisi — YENI TradingView uyumlu paralel surum.
 Korunanlar:
 - yfinance veri kaynagi
 - semboller_tv.txt (yoksa semboller.txt yedegi)
-- mevcut SAT/N/kural mantigi
 - AL / TUT / SAT / BEKLE raporu
 - sonuclar_tv.csv + ozet_tv.md
 - opsiyonel Telegram bildirimi
@@ -17,6 +16,11 @@ Degisen kisim:
   * opsiyonel EMA trend filtresi
   * opsiyonel ADX filtresi
   * opsiyonel cooldown
+- Cikis mantigi artik varsayilan olarak "Sadece N": backtest'te "N veya kural"
+  ayarinin kazanan islemleri cok erken kestigi, SAT sinyalinin bu yuzden pratikte
+  hemen hic gorunmedigi tespit edildi. Kural 1/Kural 2 kodu, ileride tekrar
+  denemek istersen diye SILINMEDI, sadece varsayilan cikis_modu degisti ve
+  CIKIS_MODU ortam degiskeniyle GitHub Actions'tan degistirilebilir hale geldi.
 
 Veri kaynagi: yfinance (BIST sembolleri '.IS' ekiyle, or. THYAO.IS)
 Kullanim:    python tarayici_tv.py
@@ -54,8 +58,10 @@ CFG = {
     "cooldown_on": False,            # TV varsayilani: kapali
     "cooldown_bars": 3,
 
-    # Mevcut cikis mantigi — DEGISTIRILMEDI
-    "cikis_modu": "N veya kural",   # "Sadece N" | "Sadece kural" | "N veya kural" | "N ve kural"
+    # Cikis mantigi — backtest sonuclarina gore degistirildi:
+    # "N veya kural" kazananlari cok erken kesiyordu (bkz. backtest_tv_ozet.md,
+    # Senaryo 9 "Sadece N ile cikis"). Varsayilan artik "Sadece N".
+    "cikis_modu": "Sadece N",       # "Sadece N" | "Sadece kural" | "N veya kural" | "N ve kural"
     "ard_len": 3,
     "zayif_len": 2,
     "zayif_sart": True,
@@ -96,6 +102,15 @@ def _env_float(ad: str, varsayilan: float) -> float:
         return varsayilan
 
 
+def _env_secim(ad: str, varsayilan: str, gecerliler: set[str]) -> str:
+    """Sadece belirli seceneklere izin verilen metin bazli ayarlar icin (ornek: CIKIS_MODU)."""
+    deger = os.getenv(ad)
+    if deger is None or str(deger).strip() == "":
+        return varsayilan
+    deger = deger.strip()
+    return deger if deger in gecerliler else varsayilan
+
+
 def github_ayarlarini_uygula() -> None:
     """GitHub Actions'tan gelen ayarlari TradingView input'lari gibi CFG'ye uygular."""
     CFG["p_edge_only"] = _env_bool("P_EDGE_ONLY", CFG["p_edge_only"])
@@ -106,6 +121,11 @@ def github_ayarlarini_uygula() -> None:
     CFG["adx_min"] = _env_float("ADX_MIN", CFG["adx_min"])
     CFG["cooldown_on"] = _env_bool("COOLDOWN_ON", CFG["cooldown_on"])
     CFG["cooldown_bars"] = _env_int("COOLDOWN_BARS", CFG["cooldown_bars"])
+    CFG["cikis_modu"] = _env_secim(
+        "CIKIS_MODU",
+        CFG["cikis_modu"],
+        {"Sadece N", "Sadece kural", "N veya kural", "N ve kural"},
+    )
 
 
 # GitHub Actions'ta secilen ayarlar varsa tum tarama motoruna uygulanir.
@@ -161,7 +181,7 @@ def adx_hesapla(df: pd.DataFrame, uzunluk: int) -> pd.Series:
 
 def sinyalleri_hesapla(df: pd.DataFrame, endeks_getiri: pd.Series) -> pd.DataFrame:
     """
-    TradingView f_motor() AL mantigi + mevcut cikis mantigi.
+    TradingView f_motor() AL mantigi + guncellenmis cikis mantigi.
 
     AL tarafindaki temel fark:
       pSinRaw = close > VWAP and hacimOK and RSI5 >= RSI10
@@ -196,7 +216,7 @@ def sinyalleri_hesapla(df: pd.DataFrame, endeks_getiri: pd.Series) -> pd.DataFra
     else:
         d["P"] = d["P_raw"]
 
-    # N / cikis tarafi mevcut tarayicidaki gibi
+    # N sinyali (cikis kurallarindan biri)
     d["N"] = (d["Close"] < d["vwap"]) & hacim_ok & (r3 < r5)
 
     # TradingView girisTemel
@@ -228,7 +248,7 @@ def sinyalleri_hesapla(df: pd.DataFrame, endeks_getiri: pd.Series) -> pd.DataFra
     # TradingView girisSinyal
     d["giris"] = giris_temel & trend_ok & adx_ok
 
-    # ── Mevcut cikis kurallari: degistirilmedi ──
+    # ── Cikis kurallari ──
     # Kural 1 — ard_len bar ust uste dusus
     dusus = (d["Close"] < d["Close"].shift(1)).astype(int)
     d["kural1"] = dusus.rolling(CFG["ard_len"]).sum() == CFG["ard_len"]
@@ -255,8 +275,7 @@ def sinyalleri_hesapla(df: pd.DataFrame, endeks_getiri: pd.Series) -> pd.DataFra
 def durum_makinesi(d: pd.DataFrame) -> dict:
     """
     Mevcut AL/TUT/SAT/BEKLE durum makinesi.
-    Yalnizca TradingView'deki opsiyonel cooldown destegi eklenmistir.
-    cooldown_on=False iken eski davranis aynen korunur.
+    Opsiyonel cooldown destegi mevcut. cooldown_on=False iken eski davranis aynen korunur.
     """
     poz = False
     durum = 0                    # 0 BEKLE, 1 AL, 2 SAT, 3 TUT
@@ -402,7 +421,8 @@ def ozet_yaz(tablo: pd.DataFrame) -> str:
         f"P-edge={'ACIK' if CFG['p_edge_only'] else 'KAPALI'} | "
         f"Trend EMA({CFG['ema_len']})={'ACIK' if CFG['trend_on'] else 'KAPALI'} | "
         f"ADX({CFG['adx_len']})>{CFG['adx_min']:g}={'ACIK' if CFG['adx_filtre_on'] else 'KAPALI'} | "
-        f"Cooldown({CFG['cooldown_bars']})={'ACIK' if CFG['cooldown_on'] else 'KAPALI'}"
+        f"Cooldown({CFG['cooldown_bars']})={'ACIK' if CFG['cooldown_on'] else 'KAPALI'} | "
+        f"Cikis={CFG['cikis_modu']}"
     )
     parcalar.append(
         f"AL: {len(al)}  |  SAT: {len(sat)}  |  TUT: {len(tut)}  |  toplam: {len(tablo)}"
