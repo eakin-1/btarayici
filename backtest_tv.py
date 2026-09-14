@@ -51,6 +51,12 @@ SERT_DUSUS = -25.0      # tek gunde % kac dususu supheli sayalim
 SERT_YUKSELIS = 45.0    # tek gunde % kac yukselisi supheli sayalim
 ISLEM_GUNU = 252        # yillandirma icin
 
+# Asagidaki senaryolar listesindeki index (0'dan baslar). Yil-yil kirilim ve
+# en iyi/en kotu 10 islem tablosu BU senaryo icin uretilir. Baska bir
+# senaryoyu detayli incelemek istersen sadece bu sayiyi degistir.
+# 0 = "1. TV varsayilan", 10 = "11. ADX ACIK + Sadece N ile cikis" vb.
+ANA_SENARYO_INDEX = 10
+
 
 def islemleri_cikar(d: pd.DataFrame, sembol: str) -> list[dict]:
     """
@@ -222,7 +228,8 @@ def main() -> None:
         print(f"{ad}: {ist.get('islem_sayisi', 0)} islem, "
               f"gunluk %{ist.get('gunluk_yuzde', 0)}, yillik %{ist.get('yillik_yuzde', 0)}")
 
-    ana_ist, ana_islem = sonuclar[senaryolar[0][0]]
+    ana_ad = senaryolar[ANA_SENARYO_INDEX][0]
+    ana_ist, ana_islem = sonuclar[ana_ad]
     ana_temiz = ana_islem[~ana_islem["supheli"]] if not ana_islem.empty else ana_islem
 
     # Donem ve XU100 karsilastirmasi
@@ -242,7 +249,8 @@ def main() -> None:
          f"Donem: {ilk} — {son}  |  Sembol: {len(veriler)}  ",
          f"Maliyet: gidis-donus %{KOMISYON * 200:.2f}  |  Uygulama: ertesi gun acilis  ",
          f"Cikis (SAT/N/kural) mantigi eski motorla birebir aynidir; sadece giris (AL) tarafi test ediliyor.",
-         f"Supheli (bedelsiz/veri hatasi) islemler olcum disi birakildi.", "",
+         f"Supheli (bedelsiz/veri hatasi) islemler olcum disi birakildi.",
+         f"Yil-yil kirilim ve en iyi/en kotu islem tablolari **'{ana_ad}'** senaryosu icindir.", "",
          f"**XU100 ayni donemde: toplam %{xu_toplam} — gunluk %{xu_gunluk} — yillik %{xu_yillik}**", "",
          "## Senaryolar", "",
          "Gunluk ve yillik sutunlari, farkli tutma sureli senaryolari adil karsilastirmak icindir.",
@@ -258,7 +266,7 @@ def main() -> None:
                  f"{ist['medyan_net_yuzde']} | {ist['ort_gun']} | {ist['gunluk_yuzde']} | "
                  f"{ist['yillik_yuzde']} | {ist['top10_haric_gunluk']} | {ist['en_kotu']} |")
 
-    s += ["", "## Yil yil — TV varsayilan ayarlar vs XU100", ""]
+    s += ["", f"## Yil yil — {ana_ad} vs XU100", ""]
     if not ana_temiz.empty:
         yillik = []
         xu_y = endeks_yillik(endeks).set_index("yil")
@@ -290,8 +298,8 @@ def main() -> None:
     if not ana_temiz.empty:
         en_iyi = ana_temiz.nlargest(10, "net_yuzde")[["sembol", "giris_tarih", "cikis_tarih", "gun", "net_yuzde"]]
         en_kotu = ana_temiz.nsmallest(10, "net_yuzde")[["sembol", "giris_tarih", "cikis_tarih", "gun", "net_yuzde"]]
-        s += ["## En iyi 10 islem", "", en_iyi.to_markdown(index=False), "",
-              "## En kotu 10 islem", "", en_kotu.to_markdown(index=False), ""]
+        s += [f"## En iyi 10 islem ({ana_ad})", "", en_iyi.to_markdown(index=False), "",
+              f"## En kotu 10 islem ({ana_ad})", "", en_kotu.to_markdown(index=False), ""]
         elenen = ana_islem[ana_islem["supheli"]]
         if not elenen.empty:
             s += [f"## Olcum disi birakilan {len(elenen)} islem (supheli fiyat hareketi)", "",
