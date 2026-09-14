@@ -86,6 +86,16 @@ jobs:
           COOLDOWN_BARS: ${{ github.event_name == 'workflow_dispatch' && inputs.cooldown_bars || '3' }}
         run: python tarayici_tv.py
 
+      - name: Ozeti ekranda goster
+        if: always()
+        run: |
+          if [ -f ozet_tv.md ]; then
+            cat ozet_tv.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ozet_tv.md bulunamadi." >> "$GITHUB_STEP_SUMMARY"
+          fi
+        
+
       - name: Yeni tarama sonuclarini sakla
         if: always()
         uses: actions/upload-artifact@v4
