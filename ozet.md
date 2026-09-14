@@ -1,12 +1,12 @@
-*BIST T/P/N taramasi — 2026-09-13*
+*BIST T/P/N taramasi — 2026-09-14*
 
-AL: 4  |  SAT: 9  |  TUT: 33  |  toplam: 103
+AL: 2  |  SAT: 5  |  TUT: 32  |  toplam: 103
 
 *AL sinyali*
-BRYAT, KONYA, SISE, VAKBN
+PGSUS, SASA
 
 *SAT sinyali*
-PETKM, VESTL, ISMEN, CEMTS, ASUZU, ASELS, TUKAS, KRDMD, ARASE
+KARSN, TTRAK, ZOREN, BERA, ALBRK
 
 *Pozisyonda*
-KARSN (9 bar, %52.41), MIATK (4 bar, %21.82), ISDMR (16 bar, %14.34), BOBET (5 bar, %11.55), TTKOM (2 bar, %9.84), TOASO (4 bar, %9.3), EGEEN (3 bar, %8.85), BIMAS (17 bar, %7.35), ZOREN (4 bar, %5.11), TTRAK (17 bar, %5.0), AGHOL (6 bar, %4.78), ENKAI (11 bar, %3.99), GARAN (21 bar, %2.44), BERA (9 bar, %2.12), LOGO (2 bar, %2.03), MPARK (2 bar, %1.9), SOKM (2 bar, %1.66), CANTE (9 bar, %1.54), AEFES (2 bar, %1.44), ALARK (2 bar, %0.95), KCHOL (2 bar, %0.8), ARCLK (2 bar, %0.42), ALBRK (3 bar, %0.22), FROTO (3 bar, %0.06), AKFGY (1 bar, %0.0), TUPRS (2 bar, %-0.18), NUHCM (2 bar, %-0.27), AKSA (3 bar, %-1.39), BAGFS (3 bar, %-1.62), HEKTS (1 bar, %-1.73), VESBE (4 bar, %-3.51), SKBNK (3 bar, %-4.28), EKGYO (2 bar, %-6.94)
+MIATK (5 bar, %25.47), EGEEN (4 bar, %17.79), ISDMR (17 bar, %12.46), BIMAS (18 bar, %6.11), AGHOL (7 bar, %5.64), TOASO (5 bar, %3.65), TTKOM (3 bar, %3.61), GARAN (22 bar, %2.21), ENKAI (12 bar, %1.77), CANTE (10 bar, %1.54), AEFES (3 bar, %1.23), LOGO (3 bar, %1.01), KONYA (1 bar, %0.94), MPARK (3 bar, %0.86), KCHOL (3 bar, %0.8), BOBET (6 bar, %0.45), TUPRS (3 bar, %0.36), SOKM (3 bar, %0.0), BAGFS (4 bar, %-0.42), ARCLK (3 bar, %-1.1), FROTO (4 bar, %-1.27), AKFGY (2 bar, %-1.39), NUHCM (3 bar, %-1.44), HEKTS (2 bar, %-1.73), BRYAT (1 bar, %-2.31), ALARK (3 bar, %-2.67), SISE (1 bar, %-3.25), VESBE (5 bar, %-3.84), AKSA (4 bar, %-3.98), SKBNK (4 bar, %-4.42), VAKBN (1 bar, %-6.14), EKGYO (3 bar, %-8.45)
