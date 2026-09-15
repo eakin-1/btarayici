@@ -29,12 +29,12 @@ Degisen kisim (bu surum):
     ortam degiskenleriyle ayarlanir (onerilen carpanlar: 1 / 1.5 / 2).
   * Her SAT satirinda hangi kuralin tetiklendigi "sat_nedeni" sutununda raporlanir
     (N / ATR / Kural / N+Kural / N+ATR).
-- YENI: sonuclar_tv.html — ekran goruntusundeki tabloya benzer, tarayicida
+- YENI: sonuclar_yeni_tv.html — ekran goruntusundeki tabloya benzer, tarayicida
   acilabilen, renkli durum etiketli bir HTML rapor sayfasi da uretiliyor.
 
 Veri kaynagi: yfinance (BIST sembolleri '.IS' ekiyle, or. THYAO.IS)
 Kullanim:    python tarayici_tv.py
-Cikti:       sonuclar_tv.csv + ozet_tv.md + sonuclar_tv.html (+ istege bagli Telegram mesaji)
+Cikti:       sonuclar_tv.csv + ozet_tv.md + sonuclar_yeni_tv.html (+ istege bagli Telegram mesaji)
 """
 
 from __future__ import annotations
@@ -640,7 +640,7 @@ if __name__ == "__main__":
     with open(os.path.join(DIZIN, "ozet_tv.md"), "w", encoding="utf-8") as f:
         f.write(ozet)
 
-    with open(os.path.join(DIZIN, "sonuclar_tv.html"), "w", encoding="utf-8") as f:
+    with open(os.path.join(DIZIN, "sonuclar_yeni_tv.html"), "w", encoding="utf-8") as f:
         f.write(html_yaz(tablo))
 
     print("\n" + ozet)
