@@ -8,23 +8,33 @@ Korunanlar:
 - sonuclar_tv.csv + ozet_tv.md
 - opsiyonel Telegram bildirimi
 
-Degisen kisim:
-- AL giris mantigi TradingView kodundaki f_motor() ile uyumludur:
+Degisen kisim (bu surum):
+- AL giris mantigi TradingView kodundaki f_motor() ile uyumludur (degismedi):
   * T sinyali
   * P sinyali ve pEdgeOnly
   * T veya P giris modu
   * opsiyonel EMA trend filtresi
   * opsiyonel ADX filtresi
   * opsiyonel cooldown
-- Cikis mantigi artik varsayilan olarak "Sadece N": backtest'te "N veya kural"
-  ayarinin kazanan islemleri cok erken kestigi, SAT sinyalinin bu yuzden pratikte
-  hemen hic gorunmedigi tespit edildi. Kural 1/Kural 2 kodu, ileride tekrar
-  denemek istersen diye SILINMEDI, sadece varsayilan cikis_modu degisti ve
-  CIKIS_MODU ortam degiskeniyle GitHub Actions'tan degistirilebilir hale geldi.
+- Cikis (SAT) tarafina ATR tabanli TRAILING STOP secenegi eklendi:
+  * N sinyali (eskisi gibi)
+  * Kural1/Kural2 (ardisik dusus / endeksten zayif performans — eskisi gibi)
+  * YENI: ATR trailing stop — Chandelier Exit mantigi: pozisyon acikken gorulen
+    en yuksek fiyattan, o barin ATR degeri * carpan kadar asagida bir stop
+    seviyesi olusur ve fiyat yukseldikce stop da yukari tasinir. Kapanis bu
+    seviyenin altina inerse SAT tetiklenir.
+  * CIKIS_MODU artik "Sadece N" | "Sadece kural" | "N veya kural" | "N ve kural" |
+    "Sadece ATR" | "N veya ATR" | "N ve ATR" degerlerini alabilir (GitHub Actions'tan
+    CIKIS_MODU ortam degiskeniyle secilir). ATR uzunlugu ATR_LEN, carpani ATR_CARPAN
+    ortam degiskenleriyle ayarlanir (onerilen carpanlar: 1 / 1.5 / 2).
+  * Her SAT satirinda hangi kuralin tetiklendigi "sat_nedeni" sutununda raporlanir
+    (N / ATR / Kural / N+Kural / N+ATR).
+- YENI: sonuclar_tv.html — ekran goruntusundeki tabloya benzer, tarayicida
+  acilabilen, renkli durum etiketli bir HTML rapor sayfasi da uretiliyor.
 
 Veri kaynagi: yfinance (BIST sembolleri '.IS' ekiyle, or. THYAO.IS)
 Kullanim:    python tarayici_tv.py
-Cikti:       sonuclar_tv.csv + ozet_tv.md (+ istege bagli Telegram mesaji)
+Cikti:       sonuclar_tv.csv + ozet_tv.md + sonuclar_tv.html (+ istege bagli Telegram mesaji)
 """
 
 from __future__ import annotations
@@ -58,13 +68,17 @@ CFG = {
     "cooldown_on": False,            # TV varsayilani: kapali
     "cooldown_bars": 3,
 
-    # Cikis mantigi — backtest sonuclarina gore degistirildi:
-    # "N veya kural" kazananlari cok erken kesiyordu (bkz. backtest_tv_ozet.md,
-    # Senaryo 9 "Sadece N ile cikis"). Varsayilan artik "Sadece N".
-    "cikis_modu": "Sadece N",       # "Sadece N" | "Sadece kural" | "N veya kural" | "N ve kural"
+    # Cikis (SAT) mantigi — N / Kural / ATR trailing stop birlikte veya ayri secilebilir.
+    "cikis_modu": "Sadece N",       # "Sadece N" | "Sadece kural" | "N veya kural" | "N ve kural" |
+                                     # "Sadece ATR" | "N veya ATR" | "N ve ATR"
     "ard_len": 3,
     "zayif_len": 2,
     "zayif_sart": True,
+
+    # ATR trailing stop ayarlari (cikis_modu icinde "ATR" gecerse kullanilir)
+    "atr_len": 14,                  # ATR periyodu
+    "atr_carpan": 1.5,              # Stop mesafesi = ATR * atr_carpan (onerilen: 1 / 1.5 / 2)
+
     "endeks": "XU100.IS",
 
     # Mevcut GitHub tarayici ayarlari — DEGISTIRILMEDI
@@ -73,6 +87,11 @@ CFG = {
 }
 
 DIZIN = os.path.dirname(os.path.abspath(__file__))
+
+_GECERLI_CIKIS_MODLARI = {
+    "Sadece N", "Sadece kural", "N veya kural", "N ve kural",
+    "Sadece ATR", "N veya ATR", "N ve ATR",
+}
 
 
 def _env_bool(ad: str, varsayilan: bool) -> bool:
@@ -121,11 +140,9 @@ def github_ayarlarini_uygula() -> None:
     CFG["adx_min"] = _env_float("ADX_MIN", CFG["adx_min"])
     CFG["cooldown_on"] = _env_bool("COOLDOWN_ON", CFG["cooldown_on"])
     CFG["cooldown_bars"] = _env_int("COOLDOWN_BARS", CFG["cooldown_bars"])
-    CFG["cikis_modu"] = _env_secim(
-        "CIKIS_MODU",
-        CFG["cikis_modu"],
-        {"Sadece N", "Sadece kural", "N veya kural", "N ve kural"},
-    )
+    CFG["cikis_modu"] = _env_secim("CIKIS_MODU", CFG["cikis_modu"], _GECERLI_CIKIS_MODLARI)
+    CFG["atr_len"] = _env_int("ATR_LEN", CFG["atr_len"])
+    CFG["atr_carpan"] = _env_float("ATR_CARPAN", CFG["atr_carpan"])
 
 
 # GitHub Actions'ta secilen ayarlar varsa tum tarama motoruna uygulanir.
@@ -144,23 +161,10 @@ def rsi(seri: pd.Series, uzunluk: int) -> pd.Series:
     return (100 - 100 / (1 + rs)).fillna(50)
 
 
-def adx_hesapla(df: pd.DataFrame, uzunluk: int) -> pd.Series:
-    """
-    Wilder ADX yaklasimi.
-    Yalnizca CFG['adx_filtre_on'] = True ise AL filtresinde kullanilir.
-    Varsayilan False oldugu icin mevcut davranisi etkilemez.
-    """
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-
-    yukari = high.diff()
-    asagi = -low.diff()
-
-    plus_dm = pd.Series(np.where((yukari > asagi) & (yukari > 0), yukari, 0.0), index=df.index)
-    minus_dm = pd.Series(np.where((asagi > yukari) & (asagi > 0), asagi, 0.0), index=df.index)
-
-    tr = pd.concat(
+def _true_range(df: pd.DataFrame) -> pd.Series:
+    """ADX ve ATR'nin ikisinin de kullandigi ortak True Range hesabi."""
+    high, low, close = df["High"], df["Low"], df["Close"]
+    return pd.concat(
         [
             high - low,
             (high - close.shift(1)).abs(),
@@ -169,6 +173,23 @@ def adx_hesapla(df: pd.DataFrame, uzunluk: int) -> pd.Series:
         axis=1,
     ).max(axis=1)
 
+
+def adx_hesapla(df: pd.DataFrame, uzunluk: int) -> pd.Series:
+    """
+    Wilder ADX yaklasimi.
+    Yalnizca CFG['adx_filtre_on'] = True ise AL filtresinde kullanilir.
+    Varsayilan False oldugu icin mevcut davranisi etkilemez.
+    """
+    high = df["High"]
+    low = df["Low"]
+
+    yukari = high.diff()
+    asagi = -low.diff()
+
+    plus_dm = pd.Series(np.where((yukari > asagi) & (yukari > 0), yukari, 0.0), index=df.index)
+    minus_dm = pd.Series(np.where((asagi > yukari) & (asagi > 0), asagi, 0.0), index=df.index)
+
+    tr = _true_range(df)
     atr = tr.ewm(alpha=1 / uzunluk, adjust=False, min_periods=uzunluk).mean()
     plus_sm = plus_dm.ewm(alpha=1 / uzunluk, adjust=False, min_periods=uzunluk).mean()
     minus_sm = minus_dm.ewm(alpha=1 / uzunluk, adjust=False, min_periods=uzunluk).mean()
@@ -179,9 +200,18 @@ def adx_hesapla(df: pd.DataFrame, uzunluk: int) -> pd.Series:
     return dx.ewm(alpha=1 / uzunluk, adjust=False, min_periods=uzunluk).mean()
 
 
+def atr_hesapla(df: pd.DataFrame, uzunluk: int) -> pd.Series:
+    """
+    Wilder ATR. Trailing stop (Chandelier Exit) hesaplamasinda kullanilir.
+    cikis_modu icinde "ATR" gecmiyorsa bu deger hic islevsel etki yaratmaz.
+    """
+    tr = _true_range(df)
+    return tr.ewm(alpha=1 / uzunluk, adjust=False, min_periods=uzunluk).mean()
+
+
 def sinyalleri_hesapla(df: pd.DataFrame, endeks_getiri: pd.Series) -> pd.DataFrame:
     """
-    TradingView f_motor() AL mantigi + guncellenmis cikis mantigi.
+    TradingView f_motor() AL mantigi (degismedi) + genisletilmis cikis mantigi.
 
     AL tarafindaki temel fark:
       pSinRaw = close > VWAP and hacimOK and RSI5 >= RSI10
@@ -248,7 +278,7 @@ def sinyalleri_hesapla(df: pd.DataFrame, endeks_getiri: pd.Series) -> pd.DataFra
     # TradingView girisSinyal
     d["giris"] = giris_temel & trend_ok & adx_ok
 
-    # ── Cikis kurallari ──
+    # ── Cikis (SAT) icin kural tabanli sinyaller ──
     # Kural 1 — ard_len bar ust uste dusus
     dusus = (d["Close"] < d["Close"].shift(1)).astype(int)
     d["kural1"] = dusus.rolling(CFG["ard_len"]).sum() == CFG["ard_len"]
@@ -261,21 +291,24 @@ def sinyalleri_hesapla(df: pd.DataFrame, endeks_getiri: pd.Series) -> pd.DataFra
         zayif_bar &= getiri < 0
     d["kural2"] = zayif_bar.rolling(CFG["zayif_len"]).sum() == CFG["zayif_len"]
 
-    kural = d["kural1"] | d["kural2"]
-    cmod = CFG["cikis_modu"]
-    d["cikis"] = (
-        d["N"] if cmod == "Sadece N"
-        else kural if cmod == "Sadece kural"
-        else (d["N"] | kural) if cmod == "N veya kural"
-        else (d["N"] & kural)
-    )
+    d["kural_cikis"] = d["kural1"] | d["kural2"]
+
+    # ATR (trailing stop icin) — cikis_modu "ATR" icermiyorsa etkisiz kalir
+    d["atr"] = atr_hesapla(d, CFG["atr_len"])
+
+    # NOT: nihai "cikis" karari artik durum_makinesi() icinde, pozisyonun giris
+    # bilgisine (en yuksek fiyat, giris ATR'si vb.) bagli olarak hesaplaniyor;
+    # ATR trailing stop tek basina bir bar bazinda vektorel olarak ifade edilemez.
     return d
 
 
 def durum_makinesi(d: pd.DataFrame) -> dict:
     """
-    Mevcut AL/TUT/SAT/BEKLE durum makinesi.
-    Opsiyonel cooldown destegi mevcut. cooldown_on=False iken eski davranis aynen korunur.
+    AL/TUT/SAT/BEKLE durum makinesi.
+
+    SAT tetikleyicileri CFG['cikis_modu'] secimine gore N / Kural(1-2) / ATR
+    trailing stop (Chandelier Exit) arasindan birini, birlikte ya da veya/ve
+    baglaciyla kullanir. Opsiyonel cooldown destegi mevcut.
     """
     poz = False
     durum = 0                    # 0 BEKLE, 1 AL, 2 SAT, 3 TUT
@@ -283,10 +316,18 @@ def durum_makinesi(d: pd.DataFrame) -> dict:
     giris_index = 0
     giris_tarih = None
     son_cikis_index = None
+    sat_nedeni = None
+    en_yuksek = np.nan            # pozisyon acikken gorulen en yuksek High (trailing stop icin)
 
     girisler = d["giris"].fillna(False).to_numpy(dtype=bool)
-    cikislar = d["cikis"].fillna(False).to_numpy(dtype=bool)
+    n_sinyal = d["N"].fillna(False).to_numpy(dtype=bool)
+    kural_sinyal = d["kural_cikis"].fillna(False).to_numpy(dtype=bool)
     kapanislar = d["Close"].to_numpy()
+    yuksekler = d["High"].to_numpy()
+    atr_dizisi = d["atr"].to_numpy()
+
+    cmod = CFG["cikis_modu"]
+    carpan = CFG["atr_carpan"]
 
     for i in range(len(d)):
         giris_izin = (
@@ -295,14 +336,50 @@ def durum_makinesi(d: pd.DataFrame) -> dict:
             or (i - son_cikis_index) >= CFG["cooldown_bars"]
         )
 
-        if poz and cikislar[i]:
+        cikis_sinyali = False
+        neden = None
+
+        if poz:
+            # Trailing ATR stop: en yuksek fiyat guncellenir, stop seviyesi
+            # o barin guncel ATR'siyle her seferinde yeniden hesaplanir.
+            en_yuksek = yuksekler[i] if np.isnan(en_yuksek) else max(en_yuksek, yuksekler[i])
+
+            atr_ok = False
+            if not np.isnan(atr_dizisi[i]) and not np.isnan(en_yuksek):
+                stop_fiyat = en_yuksek - carpan * atr_dizisi[i]
+                atr_ok = kapanislar[i] <= stop_fiyat
+
+            n_ok = bool(n_sinyal[i])
+            kural_ok = bool(kural_sinyal[i])
+
+            if cmod == "Sadece N":
+                cikis_sinyali, neden = n_ok, "N"
+            elif cmod == "Sadece kural":
+                cikis_sinyali, neden = kural_ok, "Kural"
+            elif cmod == "N veya kural":
+                cikis_sinyali = n_ok or kural_ok
+                neden = "N" if n_ok else "Kural"
+            elif cmod == "N ve kural":
+                cikis_sinyali, neden = (n_ok and kural_ok), "N+Kural"
+            elif cmod == "Sadece ATR":
+                cikis_sinyali, neden = atr_ok, "ATR"
+            elif cmod == "N veya ATR":
+                cikis_sinyali = n_ok or atr_ok
+                neden = "N" if n_ok else "ATR"
+            elif cmod == "N ve ATR":
+                cikis_sinyali, neden = (n_ok and atr_ok), "N+ATR"
+
+        if poz and cikis_sinyali:
             poz, durum = False, 2
             son_cikis_index = i
-            # Eski GitHub rapor yapisi korunuyor: SAT satirinda son giris bilgisi gosterilebilir.
+            sat_nedeni = neden
+            en_yuksek = np.nan
         elif (not poz) and girisler[i] and giris_izin:
             poz, durum = True, 1
             giris_fiyat, giris_index = kapanislar[i], i
             giris_tarih = d.index[i]
+            en_yuksek = yuksekler[i]
+            sat_nedeni = None
         else:
             durum = 3 if poz else 0
 
@@ -315,6 +392,7 @@ def durum_makinesi(d: pd.DataFrame) -> dict:
         "giris_tarih": giris_tarih.date().isoformat() if (raporla and giris_tarih is not None) else None,
         "fiyat": round(float(son), 2),
         "kz_yuzde": round(float((son - giris_fiyat) / giris_fiyat * 100), 2) if raporla else None,
+        "sat_nedeni": sat_nedeni if durum == 2 else None,
     }
 
 
@@ -409,6 +487,19 @@ def tara() -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
+def _ayarlar_ozeti() -> str:
+    cikis_aciklama = CFG["cikis_modu"]
+    if "ATR" in cikis_aciklama:
+        cikis_aciklama += f" (ATR{CFG['atr_len']} x{CFG['atr_carpan']:g}, trailing)"
+    return (
+        "P-edge=" + ("ACIK" if CFG["p_edge_only"] else "KAPALI") + " | "
+        f"Trend EMA({CFG['ema_len']})=" + ("ACIK" if CFG["trend_on"] else "KAPALI") + " | "
+        f"ADX({CFG['adx_len']})>{CFG['adx_min']:g}=" + ("ACIK" if CFG["adx_filtre_on"] else "KAPALI") + " | "
+        f"Cooldown({CFG['cooldown_bars']})=" + ("ACIK" if CFG["cooldown_on"] else "KAPALI") + " | "
+        f"Cikis={cikis_aciklama}"
+    )
+
+
 def ozet_yaz(tablo: pd.DataFrame) -> str:
     bugun = dt.date.today().isoformat()
     al = tablo[tablo["durum"] == "AL"]
@@ -416,14 +507,7 @@ def ozet_yaz(tablo: pd.DataFrame) -> str:
     tut = tablo[tablo["durum"] == "TUT"]
 
     parcalar = [f"*BIST T/P/N taramasi — {bugun}*", ""]
-    parcalar.append(
-        "Ayarlar: "
-        f"P-edge={'ACIK' if CFG['p_edge_only'] else 'KAPALI'} | "
-        f"Trend EMA({CFG['ema_len']})={'ACIK' if CFG['trend_on'] else 'KAPALI'} | "
-        f"ADX({CFG['adx_len']})>{CFG['adx_min']:g}={'ACIK' if CFG['adx_filtre_on'] else 'KAPALI'} | "
-        f"Cooldown({CFG['cooldown_bars']})={'ACIK' if CFG['cooldown_on'] else 'KAPALI'} | "
-        f"Cikis={CFG['cikis_modu']}"
-    )
+    parcalar.append("Ayarlar: " + _ayarlar_ozeti())
     parcalar.append(
         f"AL: {len(al)}  |  SAT: {len(sat)}  |  TUT: {len(tut)}  |  toplam: {len(tablo)}"
     )
@@ -431,12 +515,93 @@ def ozet_yaz(tablo: pd.DataFrame) -> str:
     if not al.empty:
         parcalar += ["", "*AL sinyali*", ", ".join(al["sembol"].tolist())]
     if not sat.empty:
-        parcalar += ["", "*SAT sinyali*", ", ".join(sat["sembol"].tolist())]
+        sat_satirlari = [
+            f"{r.sembol} ({r.sat_nedeni or '-'})" for r in sat.itertuples()
+        ]
+        parcalar += ["", "*SAT sinyali*", ", ".join(sat_satirlari)]
     if not tut.empty:
         satirlar = [f"{r.sembol} ({r.bar} bar, %{r.kz_yuzde})" for r in tut.itertuples()]
         parcalar += ["", "*Pozisyonda*", ", ".join(satirlar)]
 
     return "\n".join(parcalar)
+
+
+def html_yaz(tablo: pd.DataFrame) -> str:
+    """Ekteki goruntudeki gibi, tarayicida acilabilen renkli bir sonuc tablosu uretir."""
+    bugun = dt.date.today().isoformat()
+    renkler = {"AL": "#16a34a", "SAT": "#dc2626", "TUT": "#d97706", "BEKLE": "#6b7280"}
+
+    def rozet(durum: str) -> str:
+        renk = renkler.get(durum, "#6b7280")
+        return (
+            f'<span style="background:{renk}22;color:{renk};padding:3px 12px;'
+            f'border-radius:999px;font-weight:600;font-size:13px;white-space:nowrap;">{durum}</span>'
+        )
+
+    def hucre(deger) -> str:
+        return "" if deger is None or (isinstance(deger, float) and np.isnan(deger)) else str(deger)
+
+    satirlar_html = []
+    for r in tablo.itertuples():
+        kz = r.kz_yuzde
+        kz_html = "" if kz is None else (
+            f'<span style="color:{"#16a34a" if kz >= 0 else "#dc2626"};font-weight:600;">{kz:g}%</span>'
+        )
+        satirlar_html.append(
+            "<tr>"
+            f"<td>{hucre(r.sembol)}</td>"
+            f"<td>{hucre(r.tarih)}</td>"
+            f"<td>{rozet(r.durum)}</td>"
+            f"<td>{hucre(r.bar)}</td>"
+            f"<td>{hucre(r.giris_fiyat)}</td>"
+            f"<td>{hucre(r.giris_tarih)}</td>"
+            f"<td>{hucre(r.fiyat)}</td>"
+            f"<td>{kz_html}</td>"
+            f"<td>{hucre(r.sat_nedeni)}</td>"
+            "</tr>"
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>BIST T/P/N Taramasi — {bugun}</title>
+<style>
+  body {{ font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background:#f8fafc;
+          color:#0f172a; margin:0; padding:28px; }}
+  h1 {{ font-size:20px; margin:0 0 6px; }}
+  .ayarlar {{ color:#64748b; font-size:13px; margin-bottom:8px; }}
+  .ozet {{ color:#334155; font-size:14px; margin-bottom:18px; font-weight:600; }}
+  table {{ border-collapse:collapse; width:100%; background:#fff; border-radius:10px;
+           overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
+  th, td {{ padding:10px 14px; text-align:left; font-size:14px; border-bottom:1px solid #eef2f7; }}
+  th {{ background:#f1f5f9; font-weight:600; color:#475569; }}
+  tbody tr:hover td {{ background:#f8fafc; }}
+  tbody tr:nth-child(even) td {{ background:#fbfcfe; }}
+</style>
+</head>
+<body>
+  <h1>BIST T/P/N Taramasi — {bugun}</h1>
+  <div class="ayarlar">{_ayarlar_ozeti()}</div>
+  <div class="ozet">
+    AL: {(tablo['durum'] == 'AL').sum()} &nbsp;|&nbsp;
+    SAT: {(tablo['durum'] == 'SAT').sum()} &nbsp;|&nbsp;
+    TUT: {(tablo['durum'] == 'TUT').sum()} &nbsp;|&nbsp;
+    toplam: {len(tablo)}
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>sembol</th><th>tarih</th><th>durum</th><th>bar</th>
+        <th>giris_fiyat</th><th>giris_tarih</th><th>fiyat</th><th>kz_yuzde</th><th>sat_nedeni</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(satirlar_html)}
+    </tbody>
+  </table>
+</body>
+</html>"""
 
 
 def telegram_gonder(mesaj: str) -> None:
@@ -474,6 +639,9 @@ if __name__ == "__main__":
 
     with open(os.path.join(DIZIN, "ozet_tv.md"), "w", encoding="utf-8") as f:
         f.write(ozet)
+
+    with open(os.path.join(DIZIN, "sonuclar_tv.html"), "w", encoding="utf-8") as f:
+        f.write(html_yaz(tablo))
 
     print("\n" + ozet)
     telegram_gonder(ozet)
