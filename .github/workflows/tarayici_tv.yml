@@ -47,7 +47,7 @@ on:
         required: true
         default: "3"
         type: string
-      # ── YENI: SAT (cikis) ayarlari ──
+      # ── SAT (cikis) ayarlari ──
       cikis_modu:
         description: "Cikis (SAT) mantigi"
         required: true
@@ -76,7 +76,7 @@ on:
     - cron: "45 15 * * 1-5"
 
 permissions:
-  contents: read
+  contents: write   # sonuc dosyalarini repoya commit'leyebilmek icin gerekli
 
 jobs:
   tara_tv:
@@ -108,7 +108,6 @@ jobs:
           ADX_MIN: ${{ github.event_name == 'workflow_dispatch' && inputs.adx_min || '20' }}
           COOLDOWN_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.cooldown_on || 'false' }}
           COOLDOWN_BARS: ${{ github.event_name == 'workflow_dispatch' && inputs.cooldown_bars || '3' }}
-          # ── YENI: SAT (cikis) ayarlari ──
           CIKIS_MODU: ${{ github.event_name == 'workflow_dispatch' && inputs.cikis_modu || 'N veya ATR' }}
           ATR_LEN: ${{ github.event_name == 'workflow_dispatch' && inputs.atr_len || '14' }}
           ATR_CARPAN: ${{ github.event_name == 'workflow_dispatch' && inputs.atr_carpan || '1.5' }}
@@ -123,7 +122,19 @@ jobs:
             echo "ozet_tv.md bulunamadi." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Yeni tarama sonuclarini sakla
+      # YENI: sonuc dosyalarini repoya commit'le — boylece indirmeden,
+      # dogrudan GitHub dosya listesinden tiklayip goruntuleyebilirsin
+      # (sonuclar_tv.csv icin GitHub otomatik tablo gorunumu sunar).
+      - name: Sonuclari repoya commit'le
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sonuclar_tv.csv ozet_tv.md sonuclar_yeni_tv.html
+          git diff --staged --quiet || git commit -m "tarama_tv $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
+
+      - name: Yeni tarama sonuclarini yedekle (artifact)
         if: always()
         uses: actions/upload-artifact@v4
         with:
