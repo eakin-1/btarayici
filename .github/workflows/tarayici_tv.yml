@@ -103,7 +103,7 @@ jobs:
           P_EDGE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.p_edge_only || 'true' }}
           TREND_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.trend_on || 'false' }}
           EMA_LEN: ${{ github.event_name == 'workflow_dispatch' && inputs.ema_len || '200' }}
-          ADX_FILTRE_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.adx_filtre_on || 'false' }}
+          ADX_FILTRE_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.adx_filtre_on || 'true' }}
           ADX_LEN: ${{ github.event_name == 'workflow_dispatch' && inputs.adx_len || '14' }}
           ADX_MIN: ${{ github.event_name == 'workflow_dispatch' && inputs.adx_min || '20' }}
           COOLDOWN_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.cooldown_on || 'false' }}
