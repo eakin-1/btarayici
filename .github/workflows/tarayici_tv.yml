@@ -47,6 +47,30 @@ on:
         required: true
         default: "3"
         type: string
+      # ── YENI: SAT (cikis) ayarlari ──
+      cikis_modu:
+        description: "Cikis (SAT) mantigi"
+        required: true
+        default: "N veya ATR"
+        type: choice
+        options:
+          - "Sadece N"
+          - "Sadece kural"
+          - "N veya kural"
+          - "N ve kural"
+          - "Sadece ATR"
+          - "N veya ATR"
+          - "N ve ATR"
+      atr_len:
+        description: "ATR periyodu (trailing stop icin)"
+        required: true
+        default: "14"
+        type: string
+      atr_carpan:
+        description: "ATR carpani (1 / 1.5 / 2 onerilir)"
+        required: true
+        default: "1.5"
+        type: string
   schedule:
     # 15:45 UTC = 18:45 Turkiye saati
     - cron: "45 15 * * 1-5"
@@ -84,6 +108,10 @@ jobs:
           ADX_MIN: ${{ github.event_name == 'workflow_dispatch' && inputs.adx_min || '20' }}
           COOLDOWN_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.cooldown_on || 'false' }}
           COOLDOWN_BARS: ${{ github.event_name == 'workflow_dispatch' && inputs.cooldown_bars || '3' }}
+          # ── YENI: SAT (cikis) ayarlari ──
+          CIKIS_MODU: ${{ github.event_name == 'workflow_dispatch' && inputs.cikis_modu || 'N veya ATR' }}
+          ATR_LEN: ${{ github.event_name == 'workflow_dispatch' && inputs.atr_len || '14' }}
+          ATR_CARPAN: ${{ github.event_name == 'workflow_dispatch' && inputs.atr_carpan || '1.5' }}
         run: python tarayici_tv.py
 
       - name: Ozeti ekranda goster
@@ -94,7 +122,6 @@ jobs:
           else
             echo "ozet_tv.md bulunamadi." >> "$GITHUB_STEP_SUMMARY"
           fi
-        
 
       - name: Yeni tarama sonuclarini sakla
         if: always()
@@ -104,5 +131,6 @@ jobs:
           path: |
             sonuclar_tv.csv
             ozet_tv.md
+            sonuclar_yeni_tv.html
           if-no-files-found: warn
           retention-days: 30
