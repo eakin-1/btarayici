@@ -1,12 +1,12 @@
-*BIST T/P/N taramasi — 2026-09-17*
+*BIST T/P/N taramasi — 2026-09-18*
 
-AL: 11  |  SAT: 29  |  TUT: 22  |  toplam: 597
+AL: 5  |  SAT: 25  |  TUT: 20  |  toplam: 596
 
 *AL sinyali*
-ANHYT, CCOLA, DMRGD, GARAN, HRKET, ISMEN, LOGO, MAVI, MPARK, TAVHL, TSKB
+EFOR, LOGO, MPARK, RYGYO, TAVHL
 
 *SAT sinyali*
-MARTI, TRHOL, IEYHO, MRGYO, YKSLN, KARCL, EGEEN, EUKYO, DSTKF, TRCAS, ALKLC, TERA, CANTE, PATEK, ATAGY, KONYA, IHGZT, UNLU, OSTIM, TDGYO, DNISI, ARTMS, EFOR, SUWEN, ETILR, SKYMD, BIGEN, BOBET, ISVEA
+MARTI, TRHOL, YKSLN, IEYHO, MRGYO, SANKO, TRCAS, EGEEN, CANTE, ECOGR, EUKYO, ATAGY, DNISI, KONYA, IHGZT, ARTMS, OSTIM, TERA, SUWEN, PATEK, ETILR, SKYMD, TDGYO, BOBET, TEHOL
 
 *Pozisyonda*
-ENERY (16 bar, %37.46), AHGAZ (17 bar, %22.4), CEOEM (5 bar, %21.67), DEVA (21 bar, %18.22), ISDMR (20 bar, %16.4), TKFEN (2 bar, %12.17), CELHA (7 bar, %7.94), AGHOL (10 bar, %6.86), BMSTL (3 bar, %6.75), TOASO (8 bar, %4.65), BOSSA (2 bar, %2.25), KRTEK (5 bar, %0.7), KRGYO (6 bar, %0.0), TUPRS (6 bar, %-0.54), HUNER (5 bar, %-0.99), SANKO (4 bar, %-1.17), ALCAR (5 bar, %-1.34), ZOREN (2 bar, %-2.78), ECOGR (5 bar, %-2.98), DUNYH (22 bar, %-7.26), BAHKM (3 bar, %-10.05), BMSCH (4 bar, %-11.64)
+ENERY (17 bar, %39.52), CEOEM (7 bar, %20.21), DEVA (22 bar, %17.28), ISDMR (21 bar, %15.56), TKFEN (2 bar, %6.43), BOSSA (2 bar, %4.94), AGHOL (11 bar, %4.35), BMSTL (3 bar, %4.28), TOASO (9 bar, %3.74), AHGAZ (4 bar, %3.01), UNLU (1 bar, %2.29), CELHA (7 bar, %1.46), TUPRS (6 bar, %0.72), HRKET (1 bar, %-1.68), HUNER (5 bar, %-4.43), KRTEK (5 bar, %-5.28), BAHKM (4 bar, %-5.4), ZOREN (2 bar, %-9.13), KRGYO (7 bar, %-10.75), FZLGY (3 bar, %-12.01)
